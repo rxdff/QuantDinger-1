@@ -335,6 +335,8 @@ flowchart LR
 
 This section mirrors a typical “local deploy” path: **prepare the host → obtain the code → configure secrets → start the stack → verify → harden → optionally wire AI**. Node.js is **not** required: the repo ships a **prebuilt** UI under `frontend/dist` and Nginx serves it inside the `frontend` container.
 
+> On macOS you can skip Docker entirely: `scripts/install-native-macos.sh` installs Postgres and the API as launchd services and lets the API serve the UI itself. See [Bare-metal macOS](DEVELOPMENT.md#bare-metal-macos-no-docker).
+
 ### Prerequisites
 
 | Item | Notes |

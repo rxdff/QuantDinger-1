@@ -74,6 +74,25 @@ python run.py
 
 The dev server starts on `http://localhost:5000` with auto-reload.
 
+### Bare-metal macOS (no Docker)
+
+`scripts/install-native-macos.sh` provisions the whole stack as two launchd
+services — `postgresql@16` plus gunicorn — and points `SERVE_FRONTEND_DIR` at
+`frontend/dist` so the API process also serves the SPA. No nginx, no Redis.
+
+```bash
+./scripts/install-native-macos.sh                    # fresh install
+QD_RESTORE_SQL=~/qd_backup/qd.sql ./scripts/install-native-macos.sh   # with data
+```
+
+Defaults: PostgreSQL on 5433, app on 8888. Override with `QD_PG_PORT` /
+`QD_APP_PORT`. Two constraints are enforced rather than documented: the repo
+must not live under `~/Documents`, `~/Desktop` or `~/Downloads` (macOS TCC
+blocks launchd from reading those), and port 5000 is rejected because the
+AirPlay Receiver already answers there.
+
+`scripts/backup-db.sh` writes a `pg_dump` for migrating to another machine.
+
 ## Frontend (private Vue repository)
 
 The open-source tree **does not** contain Vue source. Maintain the UI in your separate repo, then ship static files here:
@@ -134,6 +153,7 @@ See `backend_api_python/env.example` for the full list.  Key variables:
 | `ADANOS_API_KEY` | no | Optional Adanos Market Sentiment for US stock tickers |
 | `OPENAI_API_KEY` or `OPENROUTER_API_KEY` | no | AI analysis features |
 | `CACHE_ENABLED` | no | Set `true` to use Redis (auto-set in Docker) |
+| `SERVE_FRONTEND_DIR` | no | Absolute path to a built SPA; makes the API process serve the web UI too (bare-metal installs, replaces nginx) |
 
 ## Testing
 
