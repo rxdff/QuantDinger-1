@@ -9,6 +9,8 @@ Multi-tenancy: connections are isolated per authenticated user via
 cannot accidentally place orders through someone else's Alpaca account.
 """
 
+import os
+
 from flask import Blueprint, request, jsonify
 from app.utils.auth import login_required
 from app.utils.logger import get_logger
@@ -33,6 +35,27 @@ def _placeholder_status():
     }
 
 
+def _autoconnect_from_env():
+    """单机部署便利：当用户没显式调 /connect 时，若 .env 配了 ALPACA key 就自动连。"""
+    api_key = os.getenv('ALPACA_API_KEY', '').strip()
+    secret_key = os.getenv('ALPACA_SECRET_KEY', '').strip()
+    if not api_key or not secret_key:
+        return None
+    try:
+        client = AlpacaClient(AlpacaConfig(
+            api_key=api_key,
+            secret_key=secret_key,
+            paper=os.getenv('ALPACA_PAPER', 'true').strip().lower() != 'false',
+        ))
+        if client.connect():
+            _sessions.set(client)
+            logger.info("Alpaca auto-connected from env (paper=%s)", client.config.paper)
+            return client
+    except Exception as exc:
+        logger.warning("Alpaca auto-connect failed: %s", exc)
+    return None
+
+
 # ==================== Connection Management ====================
 
 @alpaca_bp.route('/status', methods=['GET'])
@@ -41,6 +64,8 @@ def get_status():
     """Get connection status. GET /api/alpaca/status"""
     try:
         client = _sessions.get()
+        if client is None or not client.connected:
+            client = _autoconnect_from_env() or client
         if client is None:
             return jsonify({"success": True, "data": _placeholder_status()})
         return jsonify({"success": True, "data": client.get_connection_status()})
@@ -115,6 +140,8 @@ def disconnect():
 def _require_connected_client():
     client = _sessions.get()
     if client is None or not client.connected:
+        client = _autoconnect_from_env()
+    if client is None or not client.connected:
         return None, (jsonify({"success": False, "error": "Not connected to Alpaca"}), 400)
     return client, None
 
@@ -150,12 +177,17 @@ def get_positions():
 @alpaca_bp.route('/orders', methods=['GET'])
 @login_required
 def get_orders():
-    """Get open orders. GET /api/alpaca/orders"""
+    """Get orders. GET /api/alpaca/orders?status=open|closed|all&limit=500"""
     try:
         client, err = _require_connected_client()
         if err is not None:
             return err
-        return jsonify({"success": True, "data": client.get_open_orders()})
+        status = request.args.get('status', 'open')
+        try:
+            limit = int(request.args.get('limit', 500))
+        except ValueError:
+            limit = 500
+        return jsonify({"success": True, "data": client.get_open_orders(status=status, limit=limit)})
     except Exception as e:
         logger.error(f"Get orders failed: {e}")
         return jsonify({"success": False, "error": str(e)}), 500
@@ -204,6 +236,7 @@ def place_order():
             result = client.place_limit_order(
                 symbol=symbol, side=side, quantity=float(quantity), price=float(price),
                 market_type=market_type, extended_hours=bool(data.get('extendedHours', False)),
+                time_in_force=str(data.get('timeInForce') or 'GTC'),
             )
         else:
             result = client.place_market_order(

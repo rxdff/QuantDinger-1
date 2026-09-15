@@ -114,7 +114,7 @@ class AlpacaClient:
             )
             # Verify by fetching account
             account = self._trading_client.get_account()
-            self._account_id = account.id
+            self._account_id = str(account.id)
             mode = "paper" if self.config.paper else "live"
             logger.info(f"Alpaca connected ({mode}), account={self._account_id[:12]}..., status={account.status}")
             return True
@@ -196,19 +196,28 @@ class AlpacaClient:
         price: float,
         market_type: str = "USStock",
         extended_hours: bool = False,
+        time_in_force: str = "GTC",
     ) -> OrderResult:
-        """Place a limit order. extended_hours=True for pre/post-market."""
+        """Place a limit order. extended_hours=True for pre/post-market.
+        time_in_force: 'GTC' (default, 跨交易日有效) | 'DAY' (当日有效)。"""
         try:
             self._ensure_connected()
             modules = _ensure_alpaca()
             asset_class = "crypto" if market_type.lower() == "crypto" else "us_equity"
             sym = normalize_symbol(symbol, asset_class)
 
+            tif_map = {"GTC": modules["TimeInForce"].GTC, "DAY": modules["TimeInForce"].DAY}
+            tif = tif_map.get((time_in_force or "GTC").upper(), modules["TimeInForce"].GTC)
+            if asset_class == "crypto":
+                tif = modules["TimeInForce"].GTC
+            if extended_hours and asset_class == "us_equity":
+                tif = modules["TimeInForce"].DAY
+
             req = modules["LimitOrderRequest"](
                 symbol=sym,
                 qty=quantity,
                 side=modules["OrderSide"].BUY if side.lower() == "buy" else modules["OrderSide"].SELL,
-                time_in_force=modules["TimeInForce"].GTC if asset_class == "crypto" else modules["TimeInForce"].DAY,
+                time_in_force=tif,
                 limit_price=price,
                 extended_hours=extended_hours if asset_class == "us_equity" else False,
             )
@@ -297,30 +306,47 @@ class AlpacaClient:
             logger.error(f"Alpaca get_positions failed: {e}")
             return []
 
-    def get_open_orders(self) -> List[Dict[str, Any]]:
-        """Get all open orders."""
+    def get_open_orders(self, status: str = "open", limit: int = 500) -> List[Dict[str, Any]]:
+        """Get orders. status: 'open' (default) | 'closed' | 'all'."""
         try:
             self._ensure_connected()
             modules = _ensure_alpaca()
-            req = modules["GetOrdersRequest"](status=modules["QueryOrderStatus"].OPEN, limit=500)
+            status_map = {
+                "open": modules["QueryOrderStatus"].OPEN,
+                "closed": modules["QueryOrderStatus"].CLOSED,
+                "all": modules["QueryOrderStatus"].ALL,
+            }
+            req = modules["GetOrdersRequest"](
+                status=status_map.get((status or "open").lower(), modules["QueryOrderStatus"].OPEN),
+                limit=int(limit),
+            )
             orders = self._trading_client.get_orders(filter=req)
-            return [
-                {
+            out = []
+            for o in orders:
+                side = (str(o.side.value) if hasattr(o.side, 'value') else str(o.side)).lower()
+                lp = float(o.limit_price) if o.limit_price else None
+                tif = str(o.time_in_force.value) if hasattr(o.time_in_force, 'value') else str(o.time_in_force)
+                out.append({
                     "orderId": str(o.id),
                     "symbol": o.symbol,
-                    "action": (str(o.side.value) if hasattr(o.side, 'value') else str(o.side)).upper(),
+                    "side": side,
+                    "action": side.upper(),
                     "quantity": float(o.qty),
                     "orderType": str(o.order_type.value) if hasattr(o.order_type, 'value') else str(o.order_type),
-                    "limitPrice": float(o.limit_price) if o.limit_price else None,
+                    "limitPrice": lp,
+                    "price": lp,
+                    "timeInForce": tif,
+                    "tif": tif,
                     "status": str(o.status.value) if hasattr(o.status, 'value') else str(o.status),
                     "filled": float(o.filled_qty or 0),
                     "remaining": float(o.qty) - float(o.filled_qty or 0),
                     "avgFillPrice": float(o.filled_avg_price or 0),
-                    "submittedAt": str(o.submitted_at),
+                    "filledAvgPrice": float(o.filled_avg_price or 0),
+                    "submittedAt": str(o.submitted_at) if o.submitted_at else None,
+                    "createdAt": str(o.created_at) if o.created_at else None,
                     "extendedHours": bool(o.extended_hours),
-                }
-                for o in orders
-            ]
+                })
+            return out
         except Exception as e:
             logger.error(f"Alpaca get_open_orders failed: {e}")
             return []
