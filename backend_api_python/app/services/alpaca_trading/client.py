@@ -325,6 +325,7 @@ class AlpacaClient:
             for o in orders:
                 side = (str(o.side.value) if hasattr(o.side, 'value') else str(o.side)).lower()
                 lp = float(o.limit_price) if o.limit_price else None
+                sp = float(o.stop_price) if getattr(o, 'stop_price', None) else None
                 tif = str(o.time_in_force.value) if hasattr(o.time_in_force, 'value') else str(o.time_in_force)
                 out.append({
                     "orderId": str(o.id),
@@ -335,6 +336,9 @@ class AlpacaClient:
                     "orderType": str(o.order_type.value) if hasattr(o.order_type, 'value') else str(o.order_type),
                     "limitPrice": lp,
                     "price": lp,
+                    # A stop order carries no limit_price, so without this the
+                    # trigger level is invisible to every caller.
+                    "stopPrice": sp,
                     "timeInForce": tif,
                     "tif": tif,
                     "status": str(o.status.value) if hasattr(o.status, 'value') else str(o.status),
