@@ -20,6 +20,9 @@
 .env.local
 .env.*.local
 backend_api_python/.env
+# Hand-made backups of a populated .env carry live keys; the patterns above
+# do not cover them because the suffix comes last (.env.bak.docker).
+.env.bak*
 
 # ========================
 # IDE & OS
