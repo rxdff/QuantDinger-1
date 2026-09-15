@@ -17,6 +17,7 @@ PIP_INDEX="${QD_PIP_INDEX:-https://mirrors.aliyun.com/pypi/simple/}"
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BACKEND="$REPO/backend_api_python"
 PLIST="$HOME/Library/LaunchAgents/com.quantdinger.backend.plist"
+BACKUP_PLIST="$HOME/Library/LaunchAgents/com.quantdinger.backup.plist"
 UID_NUM="$(id -u)"
 
 say() { printf '\n\033[1;34m==> %s\033[0m\n' "$1"; }
@@ -142,6 +143,37 @@ launchctl bootout "gui/$UID_NUM/com.quantdinger.backend" 2>/dev/null || true
 launchctl bootstrap "gui/$UID_NUM" "$PLIST"
 launchctl kickstart "gui/$UID_NUM/com.quantdinger.backend"
 
+say "Scheduling the daily backup"
+mkdir -p "$HOME/qd_backup"
+cat > "$BACKUP_PLIST" <<EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>Label</key><string>com.quantdinger.backup</string>
+	<key>ProgramArguments</key><array><string>$REPO/scripts/backup-db.sh</string></array>
+	<key>WorkingDirectory</key><string>$REPO</string>
+	<key>EnvironmentVariables</key>
+	<dict>
+		<key>PATH</key><string>$PG_BIN:$(brew --prefix)/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+		<key>QD_PG_PORT</key><string>$PG_PORT</string>
+		<key>QD_KEEP</key><string>14</string>
+		<key>LC_ALL</key><string>en_US.UTF-8</string>
+	</dict>
+	<!-- A run missed with the lid closed fires once the machine wakes. -->
+	<key>StartCalendarInterval</key>
+	<dict><key>Hour</key><integer>3</integer><key>Minute</key><integer>30</integer></dict>
+	<key>RunAtLoad</key><false/>
+	<key>ProcessType</key><string>Background</string>
+	<key>StandardOutPath</key><string>$HOME/qd_backup/backup.log</string>
+	<key>StandardErrorPath</key><string>$HOME/qd_backup/backup.err.log</string>
+</dict>
+</plist>
+EOF
+
+launchctl bootout "gui/$UID_NUM/com.quantdinger.backup" 2>/dev/null || true
+launchctl bootstrap "gui/$UID_NUM" "$BACKUP_PLIST"
+
 say "Waiting for the API"
 for _ in $(seq 1 40); do
   curl -sf -m 3 "http://127.0.0.1:$APP_PORT/api/health" >/dev/null 2>&1 && break
@@ -162,6 +194,8 @@ $(printf '\033[1;32mQuantDinger is running.\033[0m')
   Restart    launchctl kickstart -k gui/$UID_NUM/com.quantdinger.backend
   Stop       launchctl bootout gui/$UID_NUM/com.quantdinger.backend
   Database   $PG_BIN/psql -h 127.0.0.1 -p $PG_PORT -U quantdinger -d quantdinger
+  Backup     daily 03:30 into $HOME/qd_backup (keeps 14); run now with
+             launchctl kickstart -w gui/$UID_NUM/com.quantdinger.backup
 
 Optional — connect an MCP client (Hermes, Cursor, Claude Code):
   1. Open http://localhost:$APP_PORT/#/agent-tokens and issue a token with R + B scopes.
