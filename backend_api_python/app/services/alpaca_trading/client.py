@@ -644,6 +644,12 @@ class AlpacaClient:
                     "order_type": _enum_value(getattr(o, "order_type", "")),
                     "limitPrice": _num(getattr(o, "limit_price", None), default=None),
                     "limit_price": _num(getattr(o, "limit_price", None), default=None),
+                    # 止损单只有 stop_price，不暴露的话界面上看不到触发价
+                    "stopPrice": _num(getattr(o, "stop_price", None), default=None),
+                    "stop_price": _num(getattr(o, "stop_price", None), default=None),
+                    "timeInForce": _enum_value(getattr(o, "time_in_force", "")),
+                    "time_in_force": _enum_value(getattr(o, "time_in_force", "")),
+                    "orderClass": _enum_value(getattr(o, "order_class", "")),
                     "status": _enum_value(getattr(o, "status", "")),
                     "filled": _num(getattr(o, "filled_qty", 0)),
                     "filled_qty": _num(getattr(o, "filled_qty", 0)),

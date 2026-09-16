@@ -16,7 +16,7 @@ try:
 except Exception:
     pass
 
-from flask import Flask
+from flask import Flask, send_from_directory
 from flask.json.provider import DefaultJSONProvider
 from flask_cors import CORS
 
@@ -124,6 +124,33 @@ def _bootstrap_database() -> None:
         logger.warning(f"Database initialization note: {e}")
 
 
+def _register_frontend(app):
+    """Serve the prebuilt SPA from this process when SERVE_FRONTEND_DIR is set.
+
+    Bare-metal deployments can then drop the separate nginx container. Must be
+    called before register_routes() so `/` resolves to index.html instead of
+    the health blueprint's JSON banner; `/health` and `/api/*` stay ahead of
+    the catch-all because Werkzeug ranks static rules above converters.
+    """
+    dist = (os.getenv('SERVE_FRONTEND_DIR') or '').strip()
+    if not dist:
+        return
+
+    dist = os.path.abspath(os.path.expanduser(dist))
+    if not os.path.isfile(os.path.join(dist, 'index.html')):
+        logger.warning(f"SERVE_FRONTEND_DIR has no index.html, skipping: {dist}")
+        return
+
+    def _spa(path=''):
+        if path and os.path.isfile(os.path.join(dist, path)):
+            return send_from_directory(dist, path)
+        return send_from_directory(dist, 'index.html')
+
+    app.add_url_rule('/', 'frontend_index', _spa)
+    app.add_url_rule('/<path:path>', 'frontend_spa', _spa)
+    logger.info(f"Serving frontend from {dist}")
+
+
 def create_app(config_name='default', *, register_http_routes: bool = True):
     """Create and configure the Flask application."""
     app = Flask(__name__)
@@ -147,6 +174,8 @@ def create_app(config_name='default', *, register_http_routes: bool = True):
     _bootstrap_database()
 
     if register_http_routes:
+        _register_frontend(app)
+
         from app.routes import register_routes
 
         register_routes(app)
