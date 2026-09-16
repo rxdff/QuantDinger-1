@@ -129,6 +129,10 @@ cat > "$PLIST" <<EOF
 		<key>PYTHON_API_HOST</key><string>0.0.0.0</string>
 		<key>PYTHON_API_PORT</key><string>$APP_PORT</string>
 		<key>LC_ALL</key><string>en_US.UTF-8</string>
+		<!-- Without this, a gunicorn worker forked after the master has touched
+		     an ObjC framework aborts on +[NSCharacterSet initialize] and the
+		     master respawns it forever. -->
+		<key>OBJC_DISABLE_INITIALIZE_FORK_SAFETY</key><string>YES</string>
 	</dict>
 	<key>RunAtLoad</key><true/>
 	<key>KeepAlive</key><dict><key>SuccessfulExit</key><false/></dict>
