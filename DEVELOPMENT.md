@@ -71,6 +71,45 @@ python run.py
 
 The dev server starts on `http://localhost:5000` with auto-reload.
 
+## Bare-metal macOS (no Docker at runtime)
+
+`scripts/install-native-macos.sh` installs a two-process deployment — PostgreSQL
+plus a single gunicorn worker — both under `launchd`, with no container runtime:
+
+```bash
+./scripts/install-native-macos.sh
+QD_RESTORE_SQL=~/qd_backup/qd.sql ./scripts/install-native-macos.sh   # migrate an existing database
+```
+
+Knobs: `QD_PG_PORT` (5433), `QD_APP_PORT` (8888), `QD_FRONTEND_TAG`,
+`QD_PIP_INDEX`. Port 5000 is rejected because the macOS AirPlay Receiver owns
+it, and a repo under `~/Documents`, `~/Desktop` or `~/Downloads` is rejected
+because launchd agents cannot read TCC-protected folders.
+
+Two things are specific to this deployment shape:
+
+**The frontend comes out of the release image.** Since the tree ships no UI
+source, the installer pulls `ghcr.io/openbyteinc/quantdinger-frontend` with
+`crane` and copies the nginx web root to `frontend_dist/`. Flask then serves it
+via `SERVE_FRONTEND_DIR`, which is enough because the SPA calls a relative
+`/api` on the same origin — nothing needs rewriting and no Docker daemon is
+required. The image tag defaults to the checked-out git tag so the UI rolls back
+with the code.
+
+**Upgrading from a v3 database needs a column backfill first.**
+`migrations/init.sql` declares new columns only inside `CREATE TABLE IF NOT
+EXISTS`, so tables carried over from v3 keep their old shape while the indexes
+that follow reference the new columns and fail with `column ... does not exist`.
+`migrations/pre_v5_backfill_columns.py` derives the missing columns from the
+init.sql table definitions and adds them (39 columns across 8 tables when coming
+from v3.0.6). It is idempotent, so the installer runs it unconditionally.
+
+Single-process operation is the `QD_PROCESS_ROLE=legacy` path: no Redis, no
+Celery broker, and no separate scheduler or trading-worker processes. The
+installer also sets `OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES`, without which a
+gunicorn worker forked after the master touches an Objective-C framework aborts
+on `+[NSCharacterSet initialize]` and gets respawned forever.
+
 ## Frontend (private Vue repository)
 
 The open-source tree **does not** contain Vue source or build artefacts. UI work happens in the private **QuantDinger-Vue** repo. Releases are fully automated:
